@@ -22,11 +22,14 @@ namespace WeatherBotAPI.Controllers
 
 
         [HttpGet]
+        [ProducesResponseType(typeof(WeatherResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ForecastResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetWeather(
-            string city,
-            string? type,
-            string? mode,
-            DateTime? dateTime)
+    [FromQuery] string city,
+    [FromQuery] string? mode,
+    [FromQuery] DateTime? dateTime)
         {
             if (string.IsNullOrWhiteSpace(city))
                 return BadRequest("City is required.");
