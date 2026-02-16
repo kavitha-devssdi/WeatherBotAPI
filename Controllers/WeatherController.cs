@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
 using WeatherBotAPI.Helpers;
+using WeatherBotAPI.Model;
 
 namespace WeatherBotAPI.Controllers
 {
@@ -9,11 +10,16 @@ namespace WeatherBotAPI.Controllers
     public class WeatherController : ControllerBase
     {
         private readonly IHttpClientFactory _httpClientFactory;
+        private readonly IConfiguration _configuration;
 
-        public WeatherController(IHttpClientFactory httpClientFactory)
+        public WeatherController(
+            IHttpClientFactory httpClientFactory,
+            IConfiguration configuration)
         {
             _httpClientFactory = httpClientFactory;
+            _configuration = configuration;
         }
+
 
         [HttpGet]
         public async Task<IActionResult> GetWeather(
@@ -25,7 +31,7 @@ namespace WeatherBotAPI.Controllers
             if (string.IsNullOrWhiteSpace(city))
                 return BadRequest("City is required.");
 
-            // ✅ If user provides specific date & time (IST)
+            // ================= DATE TIME REQUEST =================
             if (dateTime.HasValue)
             {
                 var requestedUtc = TimeZoneHelper.ConvertIstToUtc(dateTime.Value);
@@ -40,29 +46,29 @@ namespace WeatherBotAPI.Controllers
                     if (current == null)
                         return NotFound("Unable to fetch weather data.");
 
-                    return Ok(new
+                    return Ok(new WeatherResponse
                     {
                         City = city,
                         DateTimeIst = TimeZoneHelper.ConvertUtcToIst(nowUtc),
-                        current.Temperature,
-                        current.Humidity,
-                        current.Condition
+                        Temperature = current.Temperature,
+                        Humidity = current.Humidity,
+                        Condition = current.Condition
                     });
                 }
 
                 if (requestedUtc <= nowUtc.AddDays(5))
                 {
-                    var forecast = await GetForecastByDate(city, requestedUtc);
-                    if (forecast == null)
+                    var forecastByDate = await GetForecastByDate(city, requestedUtc);
+                    if (forecastByDate == null)
                         return NotFound("Forecast not available for requested time.");
 
-                    return Ok(forecast);
+                    return Ok(forecastByDate);
                 }
 
                 return BadRequest("Forecast available only for next 5 days.");
             }
 
-            // ✅ If mode = forecast
+            // ================= GENERAL FORECAST =================
             if (mode?.ToLower() == "forecast")
             {
                 var forecast = await GetForecastFromAPI(city);
@@ -72,18 +78,18 @@ namespace WeatherBotAPI.Controllers
                 return Ok(forecast);
             }
 
-            // ✅ Default = Current Weather
+            // ================= CURRENT WEATHER =================
             var weatherData = await GetWeatherFromAPI(city);
             if (weatherData == null)
                 return NotFound("Unable to fetch weather data.");
 
-            return Ok(new
+            return Ok(new WeatherResponse
             {
                 City = city,
                 DateTimeIst = TimeZoneHelper.ConvertUtcToIst(DateTime.UtcNow),
-                weatherData.Temperature,
-                weatherData.Humidity,
-                weatherData.Condition
+                Temperature = weatherData.Temperature,
+                Humidity = weatherData.Humidity,
+                Condition = weatherData.Condition
             });
         }
 
@@ -93,7 +99,8 @@ namespace WeatherBotAPI.Controllers
         {
             var client = _httpClientFactory.CreateClient();
 
-            string apiKey = "4ac809d507c092c99222fe4f52917fc9";
+            string apiKey = _configuration["OpenWeather:ApiKey"];
+
             string url = $"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={apiKey}&units=metric";
 
             var response = await client.GetAsync(url);
@@ -115,11 +122,12 @@ namespace WeatherBotAPI.Controllers
 
         // ================= GENERAL FORECAST =================
 
-        private async Task<object?> GetForecastFromAPI(string city)
+        private async Task<ForecastResponse?> GetForecastFromAPI(string city)
         {
             var client = _httpClientFactory.CreateClient();
 
-            string apiKey = "4ac809d507c092c99222fe4f52917fc9";
+            string apiKey = _configuration["OpenWeather:ApiKey"];
+
             string url = $"https://api.openweathermap.org/data/2.5/forecast?q={city}&appid={apiKey}&units=metric";
 
             var response = await client.GetAsync(url);
@@ -131,7 +139,7 @@ namespace WeatherBotAPI.Controllers
 
             var list = doc.RootElement.GetProperty("list");
 
-            var results = new List<object>();
+            var forecasts = new List<WeatherResponse>();
 
             for (int i = 0; i < 3; i++)
             {
@@ -141,8 +149,9 @@ namespace WeatherBotAPI.Controllers
                     DateTime.Parse(item.GetProperty("dt_txt").GetString()),
                     DateTimeKind.Utc);
 
-                results.Add(new
+                forecasts.Add(new WeatherResponse
                 {
+                    City = city,
                     DateTimeIst = TimeZoneHelper.ConvertUtcToIst(utcTime),
                     Temperature = item.GetProperty("main").GetProperty("temp").GetDouble(),
                     Humidity = item.GetProperty("main").GetProperty("humidity").GetInt32(),
@@ -150,16 +159,21 @@ namespace WeatherBotAPI.Controllers
                 });
             }
 
-            return results;
+            return new ForecastResponse
+            {
+                City = city,
+                Forecasts = forecasts
+            };
         }
 
-        // ================= FORECAST BY SPECIFIC DATE =================
+        // ================= FORECAST BY DATE =================
 
-        private async Task<object?> GetForecastByDate(string city, DateTime requestedUtc)
+        private async Task<WeatherResponse?> GetForecastByDate(string city, DateTime requestedUtc)
         {
             var client = _httpClientFactory.CreateClient();
 
-            string apiKey = "4ac809d507c092c99222fe4f52917fc9";
+            string apiKey = _configuration["OpenWeather:ApiKey"];
+
             string url = $"https://api.openweathermap.org/data/2.5/forecast?q={city}&appid={apiKey}&units=metric";
 
             var response = await client.GetAsync(url);
@@ -194,7 +208,7 @@ namespace WeatherBotAPI.Controllers
             if (closestTime == null)
                 return null;
 
-            return new
+            return new WeatherResponse
             {
                 City = city,
                 DateTimeIst = TimeZoneHelper.ConvertUtcToIst(closestTime.Value),
@@ -203,12 +217,5 @@ namespace WeatherBotAPI.Controllers
                 Condition = closestItem.GetProperty("weather")[0].GetProperty("description").GetString()
             };
         }
-    }
-
-    public class WeatherResult
-    {
-        public double Temperature { get; set; }
-        public int Humidity { get; set; }
-        public string? Condition { get; set; }
     }
 }
