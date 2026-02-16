@@ -14,7 +14,8 @@ WORKDIR /app
 
 COPY --from=build /app/publish .
 
-ENV ASPNETCORE_URLS=http://+:10000
-EXPOSE 10000
+ENV ASPNETCORE_URLS=http://+:${PORT}
+EXPOSE 8080
+
 
 ENTRYPOINT ["dotnet", "WeatherBotAPI.dll"]
