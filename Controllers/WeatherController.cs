@@ -23,9 +23,6 @@ namespace WeatherBotAPI.Controllers
         // ================= CURRENT WEATHER =================
 
         [HttpGet("current")]
-        [ProducesResponseType(typeof(CurrentWeatherResponse), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<ActionResult<CurrentWeatherResponse>> GetCurrentWeather([FromQuery] string city)
         {
             if (string.IsNullOrWhiteSpace(city))
@@ -51,9 +48,6 @@ namespace WeatherBotAPI.Controllers
         // ================= GENERAL FORECAST =================
 
         [HttpGet("forecast")]
-        [ProducesResponseType(typeof(ForecastResponse), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<ActionResult<ForecastResponse>> GetForecast([FromQuery] string city)
         {
             if (string.IsNullOrWhiteSpace(city))
@@ -69,9 +63,6 @@ namespace WeatherBotAPI.Controllers
         // ================= FORECAST BY DATE =================
 
         [HttpGet("forecastByDate")]
-        [ProducesResponseType(typeof(CurrentWeatherResponse), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<ActionResult<CurrentWeatherResponse>> GetForecastByDate(
             [FromQuery] string city,
             [FromQuery] DateTime dateTime)
@@ -144,10 +135,9 @@ namespace WeatherBotAPI.Controllers
 
             var forecasts = new List<WeatherResponse>();
 
-            for (int i = 0; i < 3; i++)
+            // 🔥 IMPORTANT: Loop through ALL 40 forecast entries
+            foreach (var item in list.EnumerateArray())
             {
-                var item = list[i];
-
                 var utcTime = DateTime.SpecifyKind(
                     DateTime.Parse(item.GetProperty("dt_txt").GetString()!),
                     DateTimeKind.Utc);
@@ -171,12 +161,26 @@ namespace WeatherBotAPI.Controllers
         private async Task<WeatherResponse?> GetForecastBySpecificDate(string city, DateTime requestedUtc)
         {
             var forecast = await GetForecastFromAPI(city);
-            if (forecast == null)
+
+            if (forecast == null || forecast.Forecasts == null || !forecast.Forecasts.Any())
                 return null;
 
-            return forecast.Forecasts
-                .OrderBy(f => Math.Abs((TimeZoneHelper.ConvertIstToUtc(f.DateTimeIst) - requestedUtc).TotalMinutes))
+            var requestedIst = TimeZoneHelper.ConvertUtcToIst(requestedUtc);
+
+            // Step 1: Filter same date
+            var sameDateForecasts = forecast.Forecasts
+                .Where(f => f.DateTimeIst.Date == requestedIst.Date)
+                .ToList();
+
+            if (!sameDateForecasts.Any())
+                return null;
+
+            // Step 2: Find closest time on that date
+            var closest = sameDateForecasts
+                .OrderBy(f => Math.Abs((f.DateTimeIst - requestedIst).TotalMinutes))
                 .FirstOrDefault();
+
+            return closest;
         }
     }
 }
